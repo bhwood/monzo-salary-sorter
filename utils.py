@@ -20,11 +20,21 @@ def get_accounts():
     print(json.dumps(response.json(), indent=2))
 
 
-def get_balance():
-    url = f"{MONZO_API_URL}/balance?account_id={BANK_ACCOUNT_ID}?"
+
+def get_personal_balance():
+    url = f"{MONZO_API_URL}/balance?account_id={BANK_ACCOUNT_ID}"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     response = requests.get(url, headers=headers)
-    print(json.dumps(response.json(), indent=2))
+    formatted_response = response.json()
+    return formatted_response["balance"]
+
+
+def get_joint_balance():
+    url = f"{MONZO_API_URL}/balance?account_id={JOINT_ACCOUNT_ID}"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    response = requests.get(url, headers=headers)
+    formatted_response = response.json()
+    return formatted_response["balance"]
 
 
 six_days_ago = datetime.datetime.now() - datetime.timedelta(days=6)
