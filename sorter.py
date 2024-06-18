@@ -1,8 +1,13 @@
 from utils import get_recent_pay_amount
 from dotenv import load_dotenv
 import os
+import requests
+import uuid
 
 load_dotenv()
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+BANK_ACCOUNT_ID = os.getenv("BANK_ACCOUNT_ID")
+MONZO_API_URL = "https://api.monzo.com"
 
 percentages = {
     "monies": 0.4721,
@@ -28,8 +33,11 @@ def calculate_totals():
     return totals
 
 
-item_to_pot_env_key = {
+item_to_personal_pot_env_key = {
     "monies": "PERSONAL_POT_MONIES",
+}
+
+item_to_joint_pot_env_key = {
     "shopping": "JOINT_POT_FOOD_SHOPPING",
     "petrol": "JOINT_POT_PETROL",
     "haircuts": "JOINT_POT_HAIR_DRESSING",
@@ -43,17 +51,76 @@ item_to_pot_env_key = {
 }
 
 
-def link_totals_to_pots():
+def link_totals_to_personal_pots():
     totals = calculate_totals()
-    pot_totals = {}
+    personal_pot_totals = {}
     for item, total in totals.items():
-        env_key = item_to_pot_env_key.get(item)
+        env_key = item_to_personal_pot_env_key.get(item)
         if env_key:
             pot_id = os.getenv(env_key)
             if pot_id:
-                pot_totals[pot_id] = total
-            else:
-                print(f"No .env entry found for {item}")
+                personal_pot_totals[pot_id] = total
+    return personal_pot_totals
+
+def link_totals_to_joint_pots():
+    totals = calculate_totals()
+    joint_pot_totals = {}
+    for item, total in totals.items():
+        env_key = item_to_joint_pot_env_key.get(item)
+        if env_key:
+            pot_id = os.getenv(env_key)
+            if pot_id:
+                joint_pot_totals[pot_id] = total
+    return joint_pot_totals
+
+def sum_personal_values():
+    dictionary = link_totals_to_personal_pots()
+    value = sum(dictionary.values())/100
+    return value
+
+def sum_joint_values():
+    dictionary = link_totals_to_joint_pots()
+    value = sum(dictionary.values())/100
+    return value
+
+
+def transfer_to_personal_pots():
+    pot_totals = link_totals_to_personal_pots()
+    for pot_id, amount in pot_totals.items():
+        dedupe_id = str(uuid.uuid4())
+        url = f"{MONZO_API_URL}/pots/{pot_id}/deposit"
+        headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+        data = {
+            "source_account_id": {BANK_ACCOUNT_ID},
+            "amount": amount,
+            "dedupe_id": dedupe_id,
+        }
+        response = requests.put(url, headers=headers, data=data)
+        joint_value_feed_item()
+        if response.status_code == 200:
+            print(f"Successfully transferred {amount} to pot {pot_id}")
         else:
-            print(f"No mapping found for {item}")
-    return pot_totals
+            print(
+                f"Failed to transfer {amount} to pot {pot_id}. Response: {response.text}"
+            )
+
+def joint_value_feed_item():
+    personal_value = sum_personal_values()
+    joint_value = sum_joint_values()
+    url = f"{MONZO_API_URL}/feed"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}"
+    }
+    data = {
+        "account_id": {BANK_ACCOUNT_ID},
+        "type": "basic",
+        "params[title]": "Please Transfer Money to the Joint Account",
+        "params[body]": f"Please transfer £{joint_value} to the joint account, £{personal_value} has already been transferred to the correct pot.",
+        "params[image_url]": "https://i.ytimg.com/vi/Q5VJePDSXlQ/maxresdefault.jpg",
+        "params[background_color]": "#FCF1EE",
+        "params[body_color]": "#FCF1EE",
+        "params[title_color]": "#333333",
+    }
+    
+    response = requests.post(url, headers=headers, data=data)
+    return response.json()
